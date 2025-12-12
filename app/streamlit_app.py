@@ -4,6 +4,13 @@ import numpy as np
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
+import xgboost as xgb
+
+if hasattr(xgb.XGBClassifier, "use_label_encoder"):
+    try:
+        del xgb.XGClassifier.use_label_encoder
+    except:
+        pass
 
 # ---------------------------------
 # Load Models & Preprocessor
@@ -172,4 +179,5 @@ with col2:
     ax.ticklabel_format(style='plain', axis='x')  # <-- Force real numbers
 
     st.pyplot(fig)
+
 
