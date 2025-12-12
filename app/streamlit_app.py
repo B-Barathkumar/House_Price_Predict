@@ -6,36 +6,46 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import xgboost as xgb
 
-if hasattr(xgb.XGBClassifier, "use_label_encoder"):
-    try:
-        del xgb.XGClassifier.use_label_encoder
-    except:
-        pass
+# --------------------------------------------------------------
+# FIX: XGBoost compatibility patch for old trained models
+# --------------------------------------------------------------
+try:
+    # Removes deprecated 'use_label_encoder' and aligns defaults
+    xgb.XGBClassifier.__init__.__defaults__ = (
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        None, None, None, False  # <- last parameter was use_label_encoder
+    )
+except:
+    pass
 
-# ---------------------------------
-# Load Models & Preprocessor
-# ---------------------------------
+
+# --------------------------------------------------------------
+# LOAD MODELS + DATASET
+# --------------------------------------------------------------
 preprocessor = joblib.load("models/preprocessor.pkl")
 investment_model = joblib.load("models/investment_classifier.pkl")
 price_model = joblib.load("models/price_regressor.pkl")
 
-# Load dataset for charts
-df = pd.read_excel("india_housing_prices.xlsx")
+# Load dataset for Market Insights
+df = pd.read_excel("data/india_housing_prices.xlsx")
 
-# ---------------------------------
-# Streamlit Page Settings
-# ---------------------------------
+
+# --------------------------------------------------------------
+# PAGE SETTINGS
+# --------------------------------------------------------------
 st.set_page_config(
     page_title="Real Estate Investment Advisor",
     layout="wide",
 )
 
 st.title("🏠 Real Estate Investment Advisor")
-st.write("Analyze property investment potential and predict future property prices using Machine Learning.")
+st.write("Analyze property investment potential and forecast future prices using Machine Learning.")
 
-# ---------------------------------
-# USER INPUT FUNCTION
-# ---------------------------------
+
+# --------------------------------------------------------------
+# USER INPUT FORM
+# --------------------------------------------------------------
 st.sidebar.header("📋 Enter Property Details")
 
 def user_input_features():
@@ -67,7 +77,6 @@ def user_input_features():
     owner_type = st.sidebar.selectbox("Owner Type", df["Owner_Type"].unique())
     availability = st.sidebar.selectbox("Availability Status", df["Availability_Status"].unique())
 
-    # Return DataFrame
     data = {
         "State": state,
         "City": city,
@@ -93,61 +102,46 @@ def user_input_features():
 
     return pd.DataFrame([data])
 
-# Collect user data
 user_data = user_input_features()
 
 
-# ---------------------------------
-# FEATURE ENGINEERING (MATCH TRAINING)
-# ---------------------------------
-
-# Price per SqFt
+# --------------------------------------------------------------
+# FEATURE ENGINEERING (same as training)
+# --------------------------------------------------------------
 user_data["Price_per_SqFt"] = (user_data["Price_in_Lakhs"] * 100000) / user_data["Size_in_SqFt"]
-
-# Age of property
 user_data["Age_of_Property"] = 2025 - user_data["Year_Built"]
 
-# School & Hospital density scores (VERY IMPORTANT)
 user_data["School_Density_Score"] = user_data["Nearby_Schools"] / user_data["Size_in_SqFt"]
 user_data["Hospital_Density_Score"] = user_data["Nearby_Hospitals"] / user_data["Size_in_SqFt"]
 
-# City Median PPS (matching training logic)
 city_pps = df[df["City"] == user_data["City"][0]]["Price_per_SqFt"].median()
 user_data["City_Median_PPS"] = city_pps
 
 
-# ---------------------------------
-# RUN PREDICTIONS
-# ---------------------------------
+# --------------------------------------------------------------
+# PREDICTIONS
+# --------------------------------------------------------------
 st.subheader("🔍 Prediction Results")
 
 try:
-    # Preprocessing
-    preprocessed_input = preprocessor.transform(user_data)
+    processed = preprocessor.transform(user_data)
 
-    # Classification
-    invest_pred = investment_model.predict(preprocessed_input)[0]
-    invest_prob = investment_model.predict_proba(preprocessed_input)[0][1]
+    invest_pred = investment_model.predict(processed)[0]
+    invest_prob = investment_model.predict_proba(processed)[0][1]
+    future_price = price_model.predict(processed)[0]
 
-    # Regression
-    future_price = price_model.predict(preprocessed_input)[0]
-
-    # Display results
-    st.success(
-        f"🏡 **Investment Recommendation:** {'GOOD INVESTMENT' if invest_pred == 1 else 'NOT RECOMMENDED'}"
-    )
-
-    st.write(f"📊 **Model Confidence:** {invest_prob * 100:.2f}%")
-    st.info(f"💰 **Predicted Future Price (5 Years):** ₹ {future_price:.2f} Lakhs")
+    st.success(f"🏡 Investment Recommendation: {'GOOD INVESTMENT' if invest_pred == 1 else 'NOT RECOMMENDED'}")
+    st.write(f"📊 Model Confidence: {invest_prob * 100:.2f}%")
+    st.info(f"💰 Predicted Future Price (5 Years): ₹ {future_price:.2f} Lakhs")
 
 except Exception as e:
     st.error("⚠️ Error occurred during prediction.")
     st.exception(e)
 
 
-# ---------------------------------
-# MARKET INSIGHTS (Charts)
-# ---------------------------------
+# --------------------------------------------------------------
+# MARKET INSIGHTS
+# --------------------------------------------------------------
 st.subheader("📊 Market Insights")
 
 col1, col2 = st.columns(2)
@@ -165,19 +159,8 @@ with col1:
 with col2:
     st.write("### Price per SqFt Distribution")
     fig, ax = plt.subplots(figsize=(8, 4))
-
-    sns.histplot(
-        df["Price_per_SqFt"],
-        kde=True,
-        bins=50,
-        color="green",
-        ax=ax
-    )
-
+    sns.histplot(df["Price_per_SqFt"], kde=True, bins=50, color="green", ax=ax)
     ax.set_xlabel("Price per SqFt (₹)")
     ax.set_ylabel("Number of Properties")
-    ax.ticklabel_format(style='plain', axis='x')  # <-- Force real numbers
-
+    ax.ticklabel_format(style='plain', axis='x')
     st.pyplot(fig)
-
-
